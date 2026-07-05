@@ -28,6 +28,37 @@ export type DiscordMember = {
   roles: string[]
 }
 
+export type DiscordChannel = {
+  id: string
+  name: string
+  type: number
+  position: number
+  parent_id: string | null
+}
+
+const ANNOUNCEABLE_CHANNEL_TYPES = [0, 5]
+
+export const getGuildChannels = unstable_cache(
+  async (): Promise<DiscordChannel[]> => {
+    const res = await fetch(
+      `${DISCORD_API}/guilds/${process.env.DISCORD_GUILD_ID}/channels`,
+      { headers: discordHeaders() }
+    )
+
+    if (!res.ok) {
+      throw new Error(`Failed to fetch channels: ${res.status} ${await res.text()}`)
+    }
+
+    const channels: DiscordChannel[] = await res.json()
+
+    return channels
+      .filter((c) => ANNOUNCEABLE_CHANNEL_TYPES.includes(c.type))
+      .sort((a, b) => a.position - b.position)
+  },
+  ['guild-channels'],
+  { revalidate: 30 }
+)
+
 export const getGuildRoles = unstable_cache(
   async (): Promise<DiscordRole[]> => {
     const res = await fetch(
@@ -64,7 +95,7 @@ export const getGuildMembers = unstable_cache(
 
 export function getAvatarUrl(userId: string, avatarHash: string | null) {
   if (!avatarHash) {
-    return `https://cdn.discordapp.com/embed/avatars/${Number(userId) % 5}.png`
+    return `https://cdn.discordapp.com/embed/avatars/${Number(BigInt(userId) % 5n)}.png`
   }
   return `https://cdn.discordapp.com/avatars/${userId}/${avatarHash}.png`
 }
