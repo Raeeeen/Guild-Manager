@@ -95,7 +95,7 @@ export const getGuildMembers = unstable_cache(
 
 export function getAvatarUrl(userId: string, avatarHash: string | null) {
   if (!avatarHash) {
-    return `https://cdn.discordapp.com/embed/avatars/${Number(BigInt(userId) % 5n)}.png`
+    return `https://cdn.discordapp.com/embed/avatars/${Number(userId) % 5}.png`
   }
   return `https://cdn.discordapp.com/avatars/${userId}/${avatarHash}.png`
 }
