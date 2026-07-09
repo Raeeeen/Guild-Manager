@@ -61,9 +61,9 @@ export default function PendingAnnouncementsPage() {
       <h1 className="text-2xl font-semibold">Pending Announcements</h1>
 
       {loading ? (
-        <p className="text-neutral-400 text-sm">Loading...</p>
+        <p className="text-black dark:text-white text-sm ">Loading...</p>
       ) : items.length === 0 ? (
-        <p className="text-neutral-400 text-sm">No pending announcements.</p>
+        <p className="text-black dark:text-white text-sm">No pending announcements.</p>
       ) : (
         <ul className="space-y-3 max-h-[70vh] overflow-y-auto pr-2">
           {items.map((a) => {
@@ -75,8 +75,8 @@ export default function PendingAnnouncementsPage() {
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <p className="font-medium">{a.title}</p>
-                    <p className="text-sm text-neutral-400">
+                    <p className="font-medium text-black dark:text-white">{a.title}</p>
+                    <p className="text-sm text-black dark:text-white">
                       #{channel?.name ?? a.channelId} •{" "}
                       {new Date(a.sendAt).toLocaleString()}
                     </p>
@@ -90,7 +90,7 @@ export default function PendingAnnouncementsPage() {
                 </div>
 
                 {a.message && (
-                  <p className="whitespace-pre-wrap break-words text-sm text-neutral-200">
+                  <p className="whitespace-pre-wrap break-words text-sm text-black dark:text-white">
                     {a.message}
                   </p>
                 )}
