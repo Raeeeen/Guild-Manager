@@ -7,6 +7,9 @@ const DOC_ID = "current";
 
 type PartyMakerDoc = {
   _id: string;
+  title?: string;
+  date?: string;
+  time?: string;
   partySize: number;
   parties: unknown[];
   updatedAt?: Date;
@@ -22,8 +25,14 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
-  const { partySize, parties } = await request.json();
-  if (!Array.isArray(parties) || typeof partySize !== "number") {
+  const { title, date, time, partySize, parties } = await request.json();
+  if (
+    typeof title !== "string" ||
+    typeof date !== "string" ||
+    typeof time !== "string" ||
+    !Array.isArray(parties) ||
+    typeof partySize !== "number"
+  ) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
   const client = await clientPromise;
@@ -32,7 +41,16 @@ export async function PUT(request: Request) {
     .collection<PartyMakerDoc>(COLLECTION)
     .updateOne(
       { _id: DOC_ID },
-      { $set: { partySize, parties, updatedAt: new Date() } },
+      {
+        $set: {
+          title,
+          date,
+          time,
+          partySize,
+          parties,
+          updatedAt: new Date(),
+        },
+      },
       { upsert: true },
     );
   return NextResponse.json({ ok: true });

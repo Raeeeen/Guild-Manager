@@ -16,15 +16,50 @@ type DiscordMember = {
   roleColor: number;
 };
 
+type PartyRole = "Tank" | "Dps" | "Support" | "Hybrid";
+
+type PartyMember = DiscordMember & {
+  assignmentRole: PartyRole;
+};
+
 type Party = {
   id: string;
   name: string;
-  members: DiscordMember[];
+  members: PartyMember[];
 };
 
 function roleColorHex(color: number) {
   if (!color) return "#9CA3AF";
   return `#${color.toString(16).padStart(6, "0")}`;
+}
+
+function getRoleCategory(role: string) {
+  const normalized = role.toLowerCase();
+  if (normalized.includes("tank")) return "Tank";
+  if (normalized.includes("dps") || normalized.includes("damage")) return "Dps";
+  if (
+    normalized.includes("support") ||
+    normalized.includes("heal") ||
+    normalized.includes("medic")
+  )
+    return "Support";
+  if (normalized.includes("hybrid") || normalized.includes("flex")) return "Hybrid";
+  return "Other";
+}
+
+function getRoleCategoryEmoji(role: string) {
+  switch (getRoleCategory(role)) {
+    case "Tank":
+      return "🛡️";
+    case "Dps":
+      return "⚔️";
+    case "Support":
+      return "💊";
+    case "Hybrid":
+      return "🔄";
+    default:
+      return "❓";
+  }
 }
 
 function createParty(id: string, index: number): Party {
@@ -39,20 +74,28 @@ function serializeParties(parties: Party[]) {
   return parties.map((p) => ({
     id: p.id,
     name: p.name,
-    memberIds: p.members.map((m) => m.id),
+    members: p.members.map((m) => ({
+      id: m.id,
+      assignmentRole: m.assignmentRole,
+    })),
   }));
 }
 
 function deserializeParties(
-  saved: { id: string; name: string; memberIds: string[] }[],
+  saved: { id: string; name: string; members: { id: string; assignmentRole: PartyRole }[] }[],
   members: DiscordMember[],
 ) {
   return saved.map((p) => ({
     id: p.id,
     name: p.name,
-    members: p.memberIds
-      .map((id) => members.find((m) => m.id === id))
-      .filter((m): m is DiscordMember => Boolean(m)),
+    members: p.members
+      .map((savedMember) => {
+        const member = members.find((m) => m.id === savedMember.id);
+        return member
+          ? ({ ...member, assignmentRole: savedMember.assignmentRole } as PartyMember)
+          : null;
+      })
+      .filter((m): m is PartyMember => Boolean(m)),
   }));
 }
 
@@ -60,19 +103,25 @@ export default function PartyMakerPage() {
   const [roles, setRoles] = useState<DiscordRole[]>([]);
   const [members, setMembers] = useState<DiscordMember[]>([]);
   const [parties, setParties] = useState<Party[]>([]);
+  const [partyTitle, setPartyTitle] = useState("");
+  const [partyDate, setPartyDate] = useState<string>(
+    new Date().toISOString().slice(0, 10),
+  );
+  const [partyTime, setPartyTime] = useState<string>(
+    new Date().toISOString().slice(11, 16),
+  );
   const [partySize, setPartySize] = useState(5);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedPartyId, setSelectedPartyId] = useState("");
   const [selectedMemberId, setSelectedMemberId] = useState("");
+  const [selectedAssignmentRole, setSelectedAssignmentRole] = useState<PartyRole>("Tank");
   const [selectedRoleFilter, setSelectedRoleFilter] = useState("all");
   const [roleSearch, setRoleSearch] = useState("");
   const [memberSearch, setMemberSearch] = useState("");
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const [memberDropdownOpen, setMemberDropdownOpen] = useState(false);
-  const [draggedMember, setDraggedMember] = useState<DiscordMember | null>(
-    null,
-  );
+  const [draggedMember, setDraggedMember] = useState<PartyMember | null>(null);
   const hasLoaded = useRef(false);
 
   useEffect(() => {
@@ -99,6 +148,9 @@ export default function PartyMakerPage() {
 
         if (boardData?.parties?.length) {
           setPartySize(boardData.partySize ?? 5);
+          setPartyTitle(boardData.title ?? "");
+          setPartyDate(boardData.date ?? new Date().toISOString().slice(0, 10));
+          setPartyTime(boardData.time ?? new Date().toISOString().slice(11, 16));
           const restored = deserializeParties(boardData.parties, loadedMembers);
           setParties(restored);
           setSelectedPartyId(restored[0]?.id ?? "");
@@ -123,17 +175,30 @@ export default function PartyMakerPage() {
       fetch("/api/party-maker", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ partySize, parties: serializeParties(parties) }),
+        body: JSON.stringify({
+          title: partyTitle,
+          date: partyDate,
+          time: partyTime,
+          partySize,
+          parties: serializeParties(parties),
+        }),
       }).catch(() =>
         setError("Failed to save — other users may not see this change."),
       );
     }, 600);
     return () => clearTimeout(timeout);
-  }, [parties, partySize]);
+  }, [parties, partySize, partyTitle, partyDate, partyTime]);
+
+  useEffect(() => {
+    if (!selectedPartyId && parties.length > 0) {
+      setSelectedPartyId(parties[0].id);
+    }
+  }, [parties, selectedPartyId]);
 
   function addParty() {
     const nextParty = createParty(crypto.randomUUID(), parties.length + 1);
     setParties((current) => [...current, nextParty]);
+    setSelectedPartyId(nextParty.id);
     setError(null);
   }
 
@@ -171,6 +236,11 @@ export default function PartyMakerPage() {
     );
     if (!memberToAdd) return;
 
+    const partyMember: PartyMember = {
+      ...memberToAdd,
+      assignmentRole: selectedAssignmentRole,
+    };
+
     const targetParty = parties.find((party) => party.id === selectedPartyId);
     if (!targetParty) return;
 
@@ -185,15 +255,15 @@ export default function PartyMakerPage() {
           return {
             ...party,
             members: [
-              ...party.members.filter((item) => item.id !== memberToAdd.id),
-              memberToAdd,
+              ...party.members.filter((item) => item.id !== partyMember.id),
+              partyMember,
             ],
           };
         }
 
         return {
           ...party,
-          members: party.members.filter((item) => item.id !== memberToAdd.id),
+          members: party.members.filter((item) => item.id !== partyMember.id),
         };
       }),
     );
@@ -210,6 +280,27 @@ export default function PartyMakerPage() {
           ? {
               ...party,
               members: party.members.filter((member) => member.id !== memberId),
+            }
+          : party,
+      ),
+    );
+  }
+
+  function updateMemberAssignmentRole(
+    partyId: string,
+    memberId: string,
+    assignmentRole: PartyRole,
+  ) {
+    setParties((current) =>
+      current.map((party) =>
+        party.id === partyId
+          ? {
+              ...party,
+              members: party.members.map((member) =>
+                member.id === memberId
+                  ? { ...member, assignmentRole }
+                  : member,
+              ),
             }
           : party,
       ),
@@ -274,7 +365,42 @@ export default function PartyMakerPage() {
       )}
 
       <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm dark:border-neutral-800 dark:bg-neutral-950/60">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              Party title
+            </label>
+            <input
+              value={partyTitle}
+              onChange={(event) => setPartyTitle(event.target.value)}
+              className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-neutral-900 outline-none focus:border-indigo-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-white"
+              placeholder="Enter a title for this party event"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              Date
+            </label>
+            <input
+              type="date"
+              value={partyDate}
+              onChange={(event) => setPartyDate(event.target.value)}
+              className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-neutral-900 outline-none focus:border-indigo-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-white"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              Time
+            </label>
+            <input
+              type="time"
+              value={partyTime}
+              onChange={(event) => setPartyTime(event.target.value)}
+              className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-neutral-900 outline-none focus:border-indigo-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-white"
+            />
+          </div>
+        </div>
+        <div className="mt-4 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <label className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
               Players per party
@@ -328,7 +454,7 @@ export default function PartyMakerPage() {
 
               <div>
                 <label className="mb-1 block text-sm text-neutral-700 dark:text-neutral-300">
-                  Filter by role
+                  Filter by Discord role
                 </label>
                 <div className="relative">
                   <input
@@ -433,12 +559,29 @@ export default function PartyMakerPage() {
                               {member.name}
                             </span>
                             <span className="text-xs text-neutral-500 dark:text-neutral-400">
-                              {member.role}
+                              {getRoleCategoryEmoji(selectedAssignmentRole)} {selectedAssignmentRole}
                             </span>
                           </button>
                         ))}
                     </div>
                   )}
+                </div>
+                <div className="mt-3 space-y-2">
+                  <label className="mb-1 block text-sm text-neutral-700 dark:text-neutral-300">
+                    Roles (Tank / Dps / Support / Hybrid)
+                  </label>
+                  <select
+                    value={selectedAssignmentRole}
+                    onChange={(event) =>
+                      setSelectedAssignmentRole(event.target.value as PartyRole)
+                    }
+                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:border-indigo-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-white"
+                  >
+                    <option value="Tank">🛡️ Tank</option>
+                    <option value="Dps">⚔️ Dps</option>
+                    <option value="Support">💊 Support</option>
+                    <option value="Hybrid">🔄 Hybrid</option>
+                  </select>
                 </div>
                 <button
                   type="button"
@@ -498,30 +641,49 @@ export default function PartyMakerPage() {
                         draggable
                         onDragStart={() => setDraggedMember(member)}
                         onDragEnd={() => setDraggedMember(null)}
-                        className="flex cursor-grab items-center justify-between rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-2 transition-colors hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900/50 dark:hover:bg-neutral-800"
+                        className="flex cursor-grab flex-col gap-3 rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-2 transition-colors hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900/50 dark:hover:bg-neutral-800"
                       >
                         <div className="flex items-center gap-2">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             src={member.avatarUrl}
                             alt={member.name}
                             className="h-7 w-7 rounded-full"
                           />
-                          <div>
+                          <div className="min-w-0">
                             <p className="text-sm font-medium text-neutral-900 dark:text-white">
                               {member.name}
                             </p>
                             <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-                              {member.role}
+                              {getRoleCategoryEmoji(member.assignmentRole)} {member.assignmentRole} · {member.role}
                             </p>
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => removeMember(party.id, member.id)}
-                          className="text-xs text-red-500 hover:text-red-400"
-                        >
-                          Remove
-                        </button>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <select
+                            value={member.assignmentRole}
+                            onChange={(event) =>
+                              updateMemberAssignmentRole(
+                                party.id,
+                                member.id,
+                                event.target.value as PartyRole,
+                              )
+                            }
+                            className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:border-indigo-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-white sm:w-auto"
+                          >
+                            <option value="Tank">🛡️ Tank</option>
+                            <option value="Dps">⚔️ Dps</option>
+                            <option value="Support">💊 Support</option>
+                            <option value="Hybrid">🔄 Hybrid</option>
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => removeMember(party.id, member.id)}
+                            className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-600 transition-colors hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300"
+                          >
+                            Remove
+                          </button>
+                        </div>
                       </div>
                     ))
                   )}
