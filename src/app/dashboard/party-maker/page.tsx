@@ -1,0 +1,536 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+
+type DiscordRole = {
+  id: string;
+  name: string;
+  color: number;
+};
+
+type DiscordMember = {
+  id: string;
+  name: string;
+  avatarUrl: string;
+  role: string;
+  roleColor: number;
+};
+
+type Party = {
+  id: string;
+  name: string;
+  members: DiscordMember[];
+};
+
+function roleColorHex(color: number) {
+  if (!color) return "#9CA3AF";
+  return `#${color.toString(16).padStart(6, "0")}`;
+}
+
+function createParty(id: string, index: number): Party {
+  return {
+    id,
+    name: `Party ${index}`,
+    members: [],
+  };
+}
+
+function serializeParties(parties: Party[]) {
+  return parties.map((p) => ({
+    id: p.id,
+    name: p.name,
+    memberIds: p.members.map((m) => m.id),
+  }));
+}
+
+function deserializeParties(
+  saved: { id: string; name: string; memberIds: string[] }[],
+  members: DiscordMember[],
+) {
+  return saved.map((p) => ({
+    id: p.id,
+    name: p.name,
+    members: p.memberIds
+      .map((id) => members.find((m) => m.id === id))
+      .filter((m): m is DiscordMember => Boolean(m)),
+  }));
+}
+
+export default function PartyMakerPage() {
+  const [roles, setRoles] = useState<DiscordRole[]>([]);
+  const [members, setMembers] = useState<DiscordMember[]>([]);
+  const [parties, setParties] = useState<Party[]>([]);
+  const [partySize, setPartySize] = useState(5);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedPartyId, setSelectedPartyId] = useState("");
+  const [selectedMemberId, setSelectedMemberId] = useState("");
+  const [selectedRoleFilter, setSelectedRoleFilter] = useState("all");
+  const [roleSearch, setRoleSearch] = useState("");
+  const [memberSearch, setMemberSearch] = useState("");
+  const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
+  const [memberDropdownOpen, setMemberDropdownOpen] = useState(false);
+  const [draggedMember, setDraggedMember] = useState<DiscordMember | null>(
+    null,
+  );
+  const hasLoaded = useRef(false);
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const [rolesRes, membersRes, boardRes] = await Promise.all([
+          fetch("/api/discord/roles"),
+          fetch("/api/discord/members"),
+          fetch("/api/party-maker"),
+        ]);
+        const [rolesData, membersData, boardData] = await Promise.all([
+          rolesRes.json(),
+          membersRes.json(),
+          boardRes.json(),
+        ]);
+
+        if (Array.isArray(rolesData)) setRoles(rolesData);
+
+        const loadedMembers: DiscordMember[] =
+          membersData?.members && Array.isArray(membersData.members)
+            ? membersData.members
+            : [];
+        setMembers(loadedMembers);
+
+        if (boardData?.parties?.length) {
+          setPartySize(boardData.partySize ?? 5);
+          const restored = deserializeParties(boardData.parties, loadedMembers);
+          setParties(restored);
+          setSelectedPartyId(restored[0]?.id ?? "");
+        } else {
+          const firstParty = createParty(crypto.randomUUID(), 1);
+          setParties([firstParty]);
+          setSelectedPartyId(firstParty.id);
+        }
+      } catch {
+        setError("Failed to load Discord roles and members.");
+      } finally {
+        setLoading(false);
+        hasLoaded.current = true;
+      }
+    }
+    loadData();
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoaded.current) return;
+    const timeout = setTimeout(() => {
+      fetch("/api/party-maker", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ partySize, parties: serializeParties(parties) }),
+      }).catch(() =>
+        setError("Failed to save — other users may not see this change."),
+      );
+    }, 600);
+    return () => clearTimeout(timeout);
+  }, [parties, partySize]);
+
+  function addParty() {
+    const nextParty = createParty(crypto.randomUUID(), parties.length + 1);
+    setParties((current) => [...current, nextParty]);
+    setError(null);
+  }
+
+  function removeParty(partyId: string) {
+    setParties((current) => {
+      const nextParties = current.filter((party) => party.id !== partyId);
+      if (selectedPartyId === partyId) {
+        setSelectedPartyId(nextParties[0]?.id ?? "");
+      }
+      return nextParties;
+    });
+  }
+
+  function updatePartyName(partyId: string, name: string) {
+    setParties((current) =>
+      current.map((party) =>
+        party.id === partyId ? { ...party, name } : party,
+      ),
+    );
+  }
+
+  function handleAddMember() {
+    if (!selectedMemberId) {
+      setError("Select a member first.");
+      return;
+    }
+
+    if (!selectedPartyId) {
+      setError("Select a party first.");
+      return;
+    }
+
+    const memberToAdd = members.find(
+      (member) => member.id === selectedMemberId,
+    );
+    if (!memberToAdd) return;
+
+    const targetParty = parties.find((party) => party.id === selectedPartyId);
+    if (!targetParty) return;
+
+    if (targetParty.members.length >= partySize) {
+      setError(`Party ${targetParty.name} is already full.`);
+      return;
+    }
+
+    setParties((current) =>
+      current.map((party) => {
+        if (party.id === selectedPartyId) {
+          return {
+            ...party,
+            members: [
+              ...party.members.filter((item) => item.id !== memberToAdd.id),
+              memberToAdd,
+            ],
+          };
+        }
+
+        return {
+          ...party,
+          members: party.members.filter((item) => item.id !== memberToAdd.id),
+        };
+      }),
+    );
+
+    setSelectedMemberId("");
+    setMemberSearch("");
+    setError(null);
+  }
+
+  function removeMember(partyId: string, memberId: string) {
+    setParties((current) =>
+      current.map((party) =>
+        party.id === partyId
+          ? {
+              ...party,
+              members: party.members.filter((member) => member.id !== memberId),
+            }
+          : party,
+      ),
+    );
+  }
+
+  function handleDrop(partyId: string) {
+    if (!draggedMember) return;
+
+    const targetParty = parties.find((party) => party.id === partyId);
+    if (!targetParty) return;
+
+    if (targetParty.members.length >= partySize) {
+      setError(`Party ${targetParty.name} is already full.`);
+      setDraggedMember(null);
+      return;
+    }
+
+    setParties((current) =>
+      current.map((party) => {
+        if (party.id === partyId) {
+          return {
+            ...party,
+            members: [
+              ...party.members.filter(
+                (member) => member.id !== draggedMember.id,
+              ),
+              draggedMember,
+            ],
+          };
+        }
+
+        return {
+          ...party,
+          members: party.members.filter(
+            (member) => member.id !== draggedMember.id,
+          ),
+        };
+      }),
+    );
+
+    setDraggedMember(null);
+    setError(null);
+  }
+
+  return (
+    <div className="mx-auto max-w-6xl space-y-6 p-6">
+      <div className="space-y-2">
+        <h1 className="text-2xl font-semibold text-neutral-900 dark:text-white">
+          Party Maker
+        </h1>
+        <p className="text-sm text-neutral-600 dark:text-neutral-400">
+          Create parties, set a player limit for each one, and assign members by
+          Discord role.
+        </p>
+      </div>
+
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+          {error}
+        </div>
+      )}
+
+      <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm dark:border-neutral-800 dark:bg-neutral-950/60">
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              Players per party
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="20"
+              value={partySize}
+              onChange={(event) =>
+                setPartySize(Number(event.target.value) || 1)
+              }
+              className="w-32 rounded-lg border border-neutral-300 bg-white px-3 py-2 text-neutral-900 outline-none focus:border-indigo-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-white"
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={addParty}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+          >
+            + Add party
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-neutral-600 dark:text-neutral-400">
+          Loading Discord members...
+        </p>
+      ) : (
+        <>
+          <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm dark:border-neutral-800 dark:bg-neutral-950/60">
+            <div className="grid gap-4 xl:grid-cols-[220px_220px_1fr]">
+              <div>
+                <label className="mb-1 block text-sm text-neutral-700 dark:text-neutral-300">
+                  Assign to party
+                </label>
+                <select
+                  value={selectedPartyId}
+                  onChange={(event) => setSelectedPartyId(event.target.value)}
+                  className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:border-indigo-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-white"
+                >
+                  {parties.map((party) => (
+                    <option key={party.id} value={party.id}>
+                      {party.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm text-neutral-700 dark:text-neutral-300">
+                  Filter by role
+                </label>
+                <div className="relative">
+                  <input
+                    value={roleSearch}
+                    onChange={(event) => {
+                      setRoleSearch(event.target.value);
+                      setRoleDropdownOpen(true);
+                    }}
+                    onFocus={() => setRoleDropdownOpen(true)}
+                    placeholder="Search roles"
+                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:border-indigo-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-white"
+                  />
+                  {roleDropdownOpen && (
+                    <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedRoleFilter("all");
+                          setRoleSearch("");
+                          setRoleDropdownOpen(false);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                      >
+                        <span className="h-2.5 w-2.5 rounded-full bg-neutral-400" />
+                        All roles
+                      </button>
+                      {roles
+                        .filter((role) =>
+                          role.name
+                            .toLowerCase()
+                            .includes(roleSearch.toLowerCase()),
+                        )
+                        .map((role) => (
+                          <button
+                            key={role.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedRoleFilter(role.name);
+                              setRoleSearch(role.name);
+                              setRoleDropdownOpen(false);
+                            }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                          >
+                            <span
+                              className="h-2.5 w-2.5 rounded-full"
+                              style={{
+                                backgroundColor: roleColorHex(role.color),
+                              }}
+                            />
+                            <span>{role.name}</span>
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm text-neutral-700 dark:text-neutral-300">
+                  Add member
+                </label>
+                <div className="relative">
+                  <input
+                    value={memberSearch}
+                    onChange={(event) => {
+                      setMemberSearch(event.target.value);
+                      setMemberDropdownOpen(true);
+                    }}
+                    onFocus={() => setMemberDropdownOpen(true)}
+                    placeholder="Search members"
+                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:border-indigo-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-white"
+                  />
+                  {memberDropdownOpen && (
+                    <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
+                      {members
+                        .filter((member) => {
+                          const matchesRole =
+                            selectedRoleFilter === "all" ||
+                            member.role === selectedRoleFilter;
+                          const matchesSearch = `${member.name} ${member.role}`
+                            .toLowerCase()
+                            .includes(memberSearch.toLowerCase());
+                          return matchesRole && matchesSearch;
+                        })
+                        .map((member) => (
+                          <button
+                            key={member.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedMemberId(member.id);
+                              setMemberSearch(member.name);
+                              setMemberDropdownOpen(false);
+                            }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                          >
+                            <img
+                              src={member.avatarUrl}
+                              alt={member.name}
+                              className="h-7 w-7 rounded-full"
+                            />
+                            <span className="flex-1 truncate">
+                              {member.name}
+                            </span>
+                            <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                              {member.role}
+                            </span>
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddMember}
+                  className="mt-3 w-full rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 transition-colors hover:bg-indigo-100 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-indigo-300"
+                >
+                  Add member to selected party
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            {parties.map((party) => (
+              <div
+                key={party.id}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={() => handleDrop(party.id)}
+                className="rounded-xl border border-neutral-200 bg-white p-3 shadow-sm transition-shadow hover:shadow-md dark:border-neutral-800 dark:bg-neutral-950/60"
+              >
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <input
+                      value={party.name}
+                      onChange={(event) =>
+                        updatePartyName(party.id, event.target.value)
+                      }
+                      className="w-full rounded-lg border border-neutral-200 bg-neutral-100 px-2.5 py-1 text-sm font-semibold text-neutral-900 outline-none focus:border-indigo-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-white"
+                    />
+                    <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                      {party.members.length}-man party
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+                      {party.members.length}/{partySize}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeParty(party.id)}
+                      className="rounded-full border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-600 transition-colors hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {party.members.length === 0 ? (
+                    <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                      No members yet.
+                    </p>
+                  ) : (
+                    party.members.map((member) => (
+                      <div
+                        key={member.id}
+                        draggable
+                        onDragStart={() => setDraggedMember(member)}
+                        onDragEnd={() => setDraggedMember(null)}
+                        className="flex cursor-grab items-center justify-between rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-2 transition-colors hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900/50 dark:hover:bg-neutral-800"
+                      >
+                        <div className="flex items-center gap-2">
+                          <img
+                            src={member.avatarUrl}
+                            alt={member.name}
+                            className="h-7 w-7 rounded-full"
+                          />
+                          <div>
+                            <p className="text-sm font-medium text-neutral-900 dark:text-white">
+                              {member.name}
+                            </p>
+                            <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                              {member.role}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeMember(party.id, member.id)}
+                          className="text-xs text-red-500 hover:text-red-400"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
