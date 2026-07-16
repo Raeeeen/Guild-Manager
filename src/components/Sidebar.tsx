@@ -8,6 +8,7 @@ const navItems = [
   { label: "Announcements", href: "/dashboard/announcements" },
   { label: "Pending Announcements", href: "/dashboard/announcements/pending" },
   { label: "Party Maker", href: "/dashboard/party-maker" },
+  { label: "Event Attendance", href: "/dashboard/event-attendance" },
 ];
 
 export default function Sidebar() {

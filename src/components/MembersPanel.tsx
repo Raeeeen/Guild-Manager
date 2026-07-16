@@ -3,12 +3,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
 
+export type MemberRole = {
+  name: string
+  color: number
+}
+
 export type Member = {
   id: string
   name: string
   avatarUrl: string
-  role: string
-  roleColor: number
+  roles: MemberRole[]
 }
 
 function intToHex(color: number) {
@@ -38,14 +42,17 @@ export default function MembersPanel() {
       .finally(() => setLoading(false))
   }, [])
 
+  // Every distinct role name across all members (for the filter dropdown)
   const allRoles = useMemo(() => {
     const seen = new Set<string>()
     const order: string[] = []
     members.forEach((m) => {
-      if (!seen.has(m.role)) {
-        seen.add(m.role)
-        order.push(m.role)
-      }
+      m.roles.forEach((r) => {
+        if (!seen.has(r.name)) {
+          seen.add(r.name)
+          order.push(r.name)
+        }
+      })
     })
     return order
   }, [members])
@@ -55,18 +62,23 @@ export default function MembersPanel() {
 
     return members.filter((m) => {
       const matchesSearch = query === '' || m.name.toLowerCase().includes(query)
-      const matchesRole = roleFilter === 'all' || m.role === roleFilter
+      const matchesRole =
+        roleFilter === 'all' || m.roles.some((r) => r.name === roleFilter)
       return matchesSearch && matchesRole
     })
   }, [members, search, roleFilter])
+
+  // Grouping key = member's top (highest-position) role
+  const topRole = (m: Member) => m.roles[0] ?? { name: 'Member', color: 0 }
 
   const roleOrder = useMemo(() => {
     const seen = new Set<string>()
     const order: string[] = []
     filteredMembers.forEach((m) => {
-      if (!seen.has(m.role)) {
-        seen.add(m.role)
-        order.push(m.role)
+      const name = topRole(m).name
+      if (!seen.has(name)) {
+        seen.add(name)
+        order.push(name)
       }
     })
     return order
@@ -76,7 +88,7 @@ export default function MembersPanel() {
     const groups: Record<string, Member[]> = {}
     roleOrder.forEach((role) => {
       groups[role] = filteredMembers
-        .filter((m) => m.role === role)
+        .filter((m) => topRole(m).name === role)
         .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
     })
     return groups
@@ -168,7 +180,7 @@ export default function MembersPanel() {
               <div key={role}>
                 <h3
                   className="mb-2 text-xs font-semibold uppercase tracking-wide"
-                  style={{ color: intToHex(roleMembers[0].roleColor) }}
+                  style={{ color: intToHex(topRole(roleMembers[0]).color) }}
                 >
                   {role} — {roleMembers.length}
                 </h3>
@@ -212,12 +224,17 @@ function MemberRow({
         {member.name}
       </span>
       {showRole && (
-        <span
-          className="ml-auto text-xs font-medium"
-          style={{ color: intToHex(member.roleColor) }}
-        >
-          {member.role}
-        </span>
+        <div className="ml-auto flex flex-wrap justify-end gap-1.5">
+          {member.roles.map((r) => (
+            <span
+              key={r.name}
+              className="text-xs font-medium"
+              style={{ color: intToHex(r.color) }}
+            >
+              {r.name}
+            </span>
+          ))}
+        </div>
       )}
     </div>
   )

@@ -1,3 +1,5 @@
+/* eslint-disable @next/next/no-img-element */
+
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -12,8 +14,7 @@ type DiscordMember = {
   id: string;
   name: string;
   avatarUrl: string;
-  role: string;
-  roleColor: number;
+  roles: { name: string; color: number }[];
 };
 
 type PartyRole = "Tank" | "Dps" | "Support" | "Hybrid";
@@ -43,7 +44,8 @@ function getRoleCategory(role: string) {
     normalized.includes("medic")
   )
     return "Support";
-  if (normalized.includes("hybrid") || normalized.includes("flex")) return "Hybrid";
+  if (normalized.includes("hybrid") || normalized.includes("flex"))
+    return "Hybrid";
   return "Other";
 }
 
@@ -82,7 +84,11 @@ function serializeParties(parties: Party[]) {
 }
 
 function deserializeParties(
-  saved: { id: string; name: string; members: { id: string; assignmentRole: PartyRole }[] }[],
+  saved: {
+    id: string;
+    name: string;
+    members: { id: string; assignmentRole: PartyRole }[];
+  }[],
   members: DiscordMember[],
 ) {
   return saved.map((p) => ({
@@ -92,7 +98,10 @@ function deserializeParties(
       .map((savedMember) => {
         const member = members.find((m) => m.id === savedMember.id);
         return member
-          ? ({ ...member, assignmentRole: savedMember.assignmentRole } as PartyMember)
+          ? ({
+              ...member,
+              assignmentRole: savedMember.assignmentRole,
+            } as PartyMember)
           : null;
       })
       .filter((m): m is PartyMember => Boolean(m)),
@@ -115,13 +124,19 @@ export default function PartyMakerPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedPartyId, setSelectedPartyId] = useState("");
   const [selectedMemberId, setSelectedMemberId] = useState("");
-  const [selectedAssignmentRole, setSelectedAssignmentRole] = useState<PartyRole>("Tank");
+  const [selectedAssignmentRole, setSelectedAssignmentRole] =
+    useState<PartyRole>("Tank");
   const [selectedRoleFilter, setSelectedRoleFilter] = useState("all");
   const [roleSearch, setRoleSearch] = useState("");
   const [memberSearch, setMemberSearch] = useState("");
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const [memberDropdownOpen, setMemberDropdownOpen] = useState(false);
   const [draggedMember, setDraggedMember] = useState<PartyMember | null>(null);
+  const [dropTarget, setDropTarget] = useState<{
+    partyId: string;
+    memberId?: string;
+    position?: "before" | "after";
+  } | null>(null);
   const hasLoaded = useRef(false);
 
   useEffect(() => {
@@ -150,7 +165,9 @@ export default function PartyMakerPage() {
           setPartySize(boardData.partySize ?? 5);
           setPartyTitle(boardData.title ?? "");
           setPartyDate(boardData.date ?? new Date().toISOString().slice(0, 10));
-          setPartyTime(boardData.time ?? new Date().toISOString().slice(11, 16));
+          setPartyTime(
+            boardData.time ?? new Date().toISOString().slice(11, 16),
+          );
           const restored = deserializeParties(boardData.parties, loadedMembers);
           setParties(restored);
           setSelectedPartyId(restored[0]?.id ?? "");
@@ -188,12 +205,6 @@ export default function PartyMakerPage() {
     }, 600);
     return () => clearTimeout(timeout);
   }, [parties, partySize, partyTitle, partyDate, partyTime]);
-
-  useEffect(() => {
-    if (!selectedPartyId && parties.length > 0) {
-      setSelectedPartyId(parties[0].id);
-    }
-  }, [parties, selectedPartyId]);
 
   function addParty() {
     const nextParty = createParty(crypto.randomUUID(), parties.length + 1);
@@ -297,9 +308,7 @@ export default function PartyMakerPage() {
           ? {
               ...party,
               members: party.members.map((member) =>
-                member.id === memberId
-                  ? { ...member, assignmentRole }
-                  : member,
+                member.id === memberId ? { ...member, assignmentRole } : member,
               ),
             }
           : party,
@@ -307,32 +316,59 @@ export default function PartyMakerPage() {
     );
   }
 
-  function handleDrop(partyId: string) {
+  function handleDrop(
+    partyId: string,
+    targetMemberId?: string,
+    position: "before" | "after" = "before",
+  ) {
     if (!draggedMember) return;
 
     const targetParty = parties.find((party) => party.id === partyId);
     if (!targetParty) return;
 
-    if (targetParty.members.length >= partySize) {
+    const isSameParty = targetParty.members.some(
+      (member) => member.id === draggedMember.id,
+    );
+
+    if (!isSameParty && targetParty.members.length >= partySize) {
       setError(`Party ${targetParty.name} is already full.`);
       setDraggedMember(null);
+      setDropTarget(null);
       return;
     }
+
+    if (targetMemberId === draggedMember.id) {
+      setDraggedMember(null);
+      setDropTarget(null);
+      return;
+    }
+
+    const existingMembers = targetParty.members.filter(
+      (member) => member.id !== draggedMember.id,
+    );
+
+    let insertIndex = targetMemberId
+      ? existingMembers.findIndex((member) => member.id === targetMemberId)
+      : -1;
+
+    if (insertIndex >= 0 && position === "after") {
+      insertIndex += 1;
+    }
+
+    const newMembers =
+      insertIndex >= 0
+        ? [
+            ...existingMembers.slice(0, insertIndex),
+            draggedMember,
+            ...existingMembers.slice(insertIndex),
+          ]
+        : [...existingMembers, draggedMember];
 
     setParties((current) =>
       current.map((party) => {
         if (party.id === partyId) {
-          return {
-            ...party,
-            members: [
-              ...party.members.filter(
-                (member) => member.id !== draggedMember.id,
-              ),
-              draggedMember,
-            ],
-          };
+          return { ...party, members: newMembers };
         }
-
         return {
           ...party,
           members: party.members.filter(
@@ -343,6 +379,7 @@ export default function PartyMakerPage() {
     );
 
     setDraggedMember(null);
+    setDropTarget(null);
     setError(null);
   }
 
@@ -533,8 +570,12 @@ export default function PartyMakerPage() {
                         .filter((member) => {
                           const matchesRole =
                             selectedRoleFilter === "all" ||
-                            member.role === selectedRoleFilter;
-                          const matchesSearch = `${member.name} ${member.role}`
+                            member.roles.some(
+                              (r) => r.name === selectedRoleFilter,
+                            );
+                          const matchesSearch = `${member.name} ${member.roles
+                            .map((r) => r.name)
+                            .join(" ")}`
                             .toLowerCase()
                             .includes(memberSearch.toLowerCase());
                           return matchesRole && matchesSearch;
@@ -559,7 +600,8 @@ export default function PartyMakerPage() {
                               {member.name}
                             </span>
                             <span className="text-xs text-neutral-500 dark:text-neutral-400">
-                              {getRoleCategoryEmoji(selectedAssignmentRole)} {selectedAssignmentRole}
+                              {getRoleCategoryEmoji(selectedAssignmentRole)}{" "}
+                              {selectedAssignmentRole}
                             </span>
                           </button>
                         ))}
@@ -598,9 +640,26 @@ export default function PartyMakerPage() {
             {parties.map((party) => (
               <div
                 key={party.id}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={() => handleDrop(party.id)}
-                className="rounded-xl border border-neutral-200 bg-white p-3 shadow-sm transition-shadow hover:shadow-md dark:border-neutral-800 dark:bg-neutral-950/60"
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDropTarget({ partyId: party.id });
+                }}
+                onDragLeave={() =>
+                  setDropTarget((current) =>
+                    current?.partyId === party.id && !current.memberId
+                      ? null
+                      : current,
+                  )
+                }
+                onDrop={(event) => {
+                  event.preventDefault();
+                  handleDrop(party.id);
+                }}
+                className={`rounded-xl border p-3 shadow-sm transition-shadow hover:shadow-md dark:bg-neutral-950/60 ${
+                  dropTarget?.partyId === party.id && !dropTarget.memberId
+                    ? "border-indigo-400 bg-indigo-50/40 dark:border-indigo-500 dark:bg-indigo-500/10"
+                    : "border-neutral-200 bg-white dark:border-neutral-800"
+                }`}
               >
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div className="min-w-0">
@@ -629,7 +688,7 @@ export default function PartyMakerPage() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
+                <div className="flex flex-col">
                   {party.members.length === 0 ? (
                     <p className="text-sm text-neutral-500 dark:text-neutral-400">
                       No members yet.
@@ -640,8 +699,50 @@ export default function PartyMakerPage() {
                         key={member.id}
                         draggable
                         onDragStart={() => setDraggedMember(member)}
-                        onDragEnd={() => setDraggedMember(null)}
-                        className="flex cursor-grab flex-col gap-3 rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-2 transition-colors hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900/50 dark:hover:bg-neutral-800"
+                        onDragEnd={() => {
+                          setDraggedMember(null);
+                          setDropTarget(null);
+                        }}
+                        onDragOver={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          const rect =
+                            event.currentTarget.getBoundingClientRect();
+                          const position =
+                            event.clientY - rect.top > rect.height / 2
+                              ? "after"
+                              : "before";
+                          setDropTarget({
+                            partyId: party.id,
+                            memberId: member.id,
+                            position,
+                          });
+                        }}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          const rect =
+                            event.currentTarget.getBoundingClientRect();
+                          const position =
+                            event.clientY - rect.top > rect.height / 2
+                              ? "after"
+                              : "before";
+                          handleDrop(party.id, member.id, position);
+                        }}
+                        onDragLeave={() =>
+                          setDropTarget((current) =>
+                            current?.partyId === party.id &&
+                            current.memberId === member.id
+                              ? null
+                              : current,
+                          )
+                        }
+                        className={`flex cursor-grab flex-col gap-3 rounded-lg border px-2.5 py-2 transition-colors dark:border-neutral-800 dark:bg-neutral-900/50 dark:hover:bg-neutral-800 ${
+                          dropTarget?.partyId === party.id &&
+                          dropTarget?.memberId === member.id
+                            ? "border-indigo-400 bg-indigo-50/40 dark:bg-indigo-500/10"
+                            : "border-neutral-200 bg-neutral-50 hover:bg-neutral-100"
+                        }`}
                       >
                         <div className="flex items-center gap-2">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -655,7 +756,8 @@ export default function PartyMakerPage() {
                               {member.name}
                             </p>
                             <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-                              {getRoleCategoryEmoji(member.assignmentRole)} {member.assignmentRole} · {member.role}
+                              {getRoleCategoryEmoji(member.assignmentRole)}{" "}
+                              {member.assignmentRole}
                             </p>
                           </div>
                         </div>

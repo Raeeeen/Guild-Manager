@@ -20,14 +20,15 @@ export async function GET() {
         const memberRoles = sortedRoles.filter(
           (r) => m.roles.includes(r.id) && r.name !== "@everyone",
         );
-        const topRole = memberRoles[0];
 
         return {
           id: m.user.id,
           name: m.nick || m.user.global_name || m.user.username,
           avatarUrl: getAvatarUrl(m.user.id, m.user.avatar),
-          role: topRole?.name || "Member",
-          roleColor: topRole?.color || 0,
+          roles:
+            memberRoles.length > 0
+              ? memberRoles.map((r) => ({ name: r.name, color: r.color }))
+              : [{ name: "Member", color: 0 }],
         };
       })
       .sort((a, b) => a.id.localeCompare(b.id));
