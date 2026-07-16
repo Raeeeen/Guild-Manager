@@ -16,51 +16,60 @@ export default function ResetPasswordPage() {
   const [canReset, setCanReset] = useState(false);
   const [ready, setReady] = useState(false);
 
-  useEffect(() => {
+ useEffect(() => {
+  let active = true;
+
+  async function handleSessionFromUrl() {
     const urlSearch = new URLSearchParams(window.location.search);
     const hashSearch = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-    const hasAuthParams =
-      urlSearch.has("access_token") ||
-      urlSearch.has("refresh_token") ||
-      hashSearch.has("access_token") ||
-      hashSearch.has("refresh_token") ||
-      urlSearch.has("type") ||
-      hashSearch.has("type");
+    const code = urlSearch.get("code");
 
-    async function handleSessionFromUrl() {
-      try {
-        if (urlSearch.has("access_token") && urlSearch.has("refresh_token")) {
-          const { data, error } = await supabase.auth.setSession({
-            access_token: urlSearch.get("access_token")!,
-            refresh_token: urlSearch.get("refresh_token")!,
-          });
-
-          if (error) {
-            setError(error.message);
-          } else if (data.session) {
-            setCanReset(true);
-          }
-        } else {
-          const { error } = await supabase.auth.getSessionFromUrl({ storeSession: true });
-          if (error) {
-            setError(error.message);
-          } else {
-            setCanReset(true);
-          }
-        }
-      } catch (err) {
-        setError((err as Error)?.message ?? "Unable to load reset session.");
-      } finally {
-        setReady(true);
+    try {
+      if (urlSearch.has("access_token") && urlSearch.has("refresh_token")) {
+        const { data, error } = await supabase.auth.setSession({
+          access_token: urlSearch.get("access_token")!,
+          refresh_token: urlSearch.get("refresh_token")!,
+        });
+        if (error) setError(error.message);
+        else if (data.session) setCanReset(true);
+      } else if (code) {
+        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+        if (error) setError(error.message);
+        else if (data.session) setCanReset(true);
+      } else if (hashSearch.has("access_token") && hashSearch.has("refresh_token")) {
+        const { data, error } = await supabase.auth.setSession({
+          access_token: hashSearch.get("access_token")!,
+          refresh_token: hashSearch.get("refresh_token")!,
+        });
+        if (error) setError(error.message);
+        else if (data.session) setCanReset(true);
+      } else {
+      
+        const { data } = await supabase.auth.getSession();
+        if (data.session) setCanReset(true);
       }
+    } catch (err) {
+      setError((err as Error)?.message ?? "Unable to load reset session.");
+    } finally {
+      if (active) setReady(true);
     }
+  }
 
-    if (hasAuthParams) {
-      handleSessionFromUrl();
-    } else {
+  // Supabase fires this once it parses a recovery link from the URL hash
+  const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+    if (event === "PASSWORD_RECOVERY" && session) {
+      setCanReset(true);
       setReady(true);
     }
-  }, [supabase]);
+  });
+
+  void handleSessionFromUrl();
+
+  return () => {
+    active = false;
+    listener.subscription.unsubscribe();
+  };
+}, [supabase]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
