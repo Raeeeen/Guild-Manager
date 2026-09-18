@@ -16,60 +16,66 @@ export default function ResetPasswordPage() {
   const [canReset, setCanReset] = useState(false);
   const [ready, setReady] = useState(false);
 
- useEffect(() => {
-  let active = true;
+  useEffect(() => {
+    let active = true;
 
-  async function handleSessionFromUrl() {
-    const urlSearch = new URLSearchParams(window.location.search);
-    const hashSearch = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-    const code = urlSearch.get("code");
+    async function handleSessionFromUrl() {
+      const urlSearch = new URLSearchParams(window.location.search);
+      const hashSearch = new URLSearchParams(
+        window.location.hash.replace(/^#/, ""),
+      );
+      const code = urlSearch.get("code");
 
-    try {
-      if (urlSearch.has("access_token") && urlSearch.has("refresh_token")) {
-        const { data, error } = await supabase.auth.setSession({
-          access_token: urlSearch.get("access_token")!,
-          refresh_token: urlSearch.get("refresh_token")!,
-        });
-        if (error) setError(error.message);
-        else if (data.session) setCanReset(true);
-      } else if (code) {
-        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-        if (error) setError(error.message);
-        else if (data.session) setCanReset(true);
-      } else if (hashSearch.has("access_token") && hashSearch.has("refresh_token")) {
-        const { data, error } = await supabase.auth.setSession({
-          access_token: hashSearch.get("access_token")!,
-          refresh_token: hashSearch.get("refresh_token")!,
-        });
-        if (error) setError(error.message);
-        else if (data.session) setCanReset(true);
-      } else {
-      
-        const { data } = await supabase.auth.getSession();
-        if (data.session) setCanReset(true);
+      try {
+        if (urlSearch.has("access_token") && urlSearch.has("refresh_token")) {
+          const { data, error } = await supabase.auth.setSession({
+            access_token: urlSearch.get("access_token")!,
+            refresh_token: urlSearch.get("refresh_token")!,
+          });
+          if (error) setError(error.message);
+          else if (data.session) setCanReset(true);
+        } else if (code) {
+          const { data, error } =
+            await supabase.auth.exchangeCodeForSession(code);
+          if (error) setError(error.message);
+          else if (data.session) setCanReset(true);
+        } else if (
+          hashSearch.has("access_token") &&
+          hashSearch.has("refresh_token")
+        ) {
+          const { data, error } = await supabase.auth.setSession({
+            access_token: hashSearch.get("access_token")!,
+            refresh_token: hashSearch.get("refresh_token")!,
+          });
+          if (error) setError(error.message);
+          else if (data.session) setCanReset(true);
+        } else {
+          const { data } = await supabase.auth.getSession();
+          if (data.session) setCanReset(true);
+        }
+      } catch (err) {
+        setError((err as Error)?.message ?? "Unable to load reset session.");
+      } finally {
+        if (active) setReady(true);
       }
-    } catch (err) {
-      setError((err as Error)?.message ?? "Unable to load reset session.");
-    } finally {
-      if (active) setReady(true);
     }
-  }
 
-  // Supabase fires this once it parses a recovery link from the URL hash
-  const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
-    if (event === "PASSWORD_RECOVERY" && session) {
-      setCanReset(true);
-      setReady(true);
-    }
-  });
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (event === "PASSWORD_RECOVERY" && session) {
+          setCanReset(true);
+          setReady(true);
+        }
+      },
+    );
 
-  void handleSessionFromUrl();
+    void handleSessionFromUrl();
 
-  return () => {
-    active = false;
-    listener.subscription.unsubscribe();
-  };
-}, [supabase]);
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, [supabase]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,7 +103,9 @@ export default function ResetPasswordPage() {
       return;
     }
 
-    setMessage("Your password has been updated. You can now sign in with your new password.");
+    setMessage(
+      "Your password has been updated. You can now sign in with your new password.",
+    );
 
     setTimeout(() => {
       router.push("/login");
@@ -116,10 +124,12 @@ export default function ResetPasswordPage() {
         ) : !canReset ? (
           <div className="space-y-4">
             <p className="text-sm text-gray-600">
-              To reset your password, open the password reset link sent to your email.
+              To reset your password, open the password reset link sent to your
+              email.
             </p>
             <p className="text-sm text-gray-600">
-              If you are already on the reset page, make sure the email link was opened from your inbox.
+              If you are already on the reset page, make sure the email link was
+              opened from your inbox.
             </p>
           </div>
         ) : (
@@ -167,7 +177,10 @@ export default function ResetPasswordPage() {
 
         <p className="mt-4 text-center text-sm text-gray-600">
           Remembered your password?{" "}
-          <a href="/login" className="font-medium text-indigo-600 hover:underline">
+          <a
+            href="/login"
+            className="font-medium text-indigo-600 hover:underline"
+          >
             Sign in
           </a>
         </p>

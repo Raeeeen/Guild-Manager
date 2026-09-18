@@ -88,7 +88,7 @@ export async function loadSheets(): Promise<Sheet[]> {
       return sheets;
     }
   } catch {
-    // Fall back to the last locally cached sheets when the API is unavailable.
+    // Fallback
   }
 
   try {
@@ -110,7 +110,7 @@ export async function saveSheets(sheets: Sheet[]): Promise<Sheet[]> {
       body: JSON.stringify({ sheets }),
     });
   } catch {
-    // Keep the browser cache in sync even if the API call fails.
+    // cache
   }
 
   localStorage.setItem(STORAGE_KEY, JSON.stringify(sheets));

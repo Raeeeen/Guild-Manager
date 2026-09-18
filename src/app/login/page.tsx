@@ -76,7 +76,6 @@ export default function LoginPage() {
                 tabIndex={-1}
               >
                 {showPassword ? (
-                  // Eye-off icon
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     className="h-5 w-5"
@@ -92,7 +91,6 @@ export default function LoginPage() {
                     />
                   </svg>
                 ) : (
-                  // Eye icon
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     className="h-5 w-5"

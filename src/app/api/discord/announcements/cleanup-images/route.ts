@@ -19,7 +19,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ deleted: 0 });
     }
 
-    // Extract the storage filename from each public URL
     const filenames = images
       .map((url: string) => url.split(`${BUCKET}/`).pop())
       .filter(Boolean) as string[];

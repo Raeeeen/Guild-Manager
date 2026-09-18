@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -52,8 +54,6 @@ function roleColorHex(color: number) {
   return `#${color.toString(16).padStart(6, "0")}`;
 }
 
-// Converts a timestamp into the "YYYY-MM-DDTHH:mm" format expected by
-// <input type="datetime-local">, using local time (not UTC).
 function toDatetimeLocalValue(ts: number): string {
   const d = new Date(ts);
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -79,7 +79,7 @@ function saveCache(items: CachedAnnouncement[]) {
   try {
     localStorage.setItem(CACHE_KEY, JSON.stringify(items));
   } catch {
-    // ignore quota / private-mode errors
+    // ignore 
   }
 }
 
@@ -146,9 +146,6 @@ export default function AnnouncementsPage() {
     loadMembers();
   }, []);
 
-  // Load cached "previous announcements" on mount, and prune expired
-  // entries every minute so they disappear ~1 day after being scheduled
-  // without needing a page refresh.
   useEffect(() => {
     setPrevious(loadCache());
     const interval = setInterval(() => {
@@ -230,7 +227,6 @@ export default function AnnouncementsPage() {
     setFiles(selected);
   }
 
-  // Manual typing: "-" + space at start of a line becomes a bullet.
   function handleMessageKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key !== " ") return;
     const textarea = e.currentTarget;
@@ -250,8 +246,6 @@ export default function AnnouncementsPage() {
     }
   }
 
-  // Converts pasted HTML (rich formatting from a rendered Discord message)
-  // into Discord markdown so bold/underline/etc. survive the round trip.
   function htmlToDiscordMarkdown(html: string): string {
     const container = document.createElement("div");
     container.innerHTML = html;
@@ -298,9 +292,6 @@ export default function AnnouncementsPage() {
       .trim();
   }
 
-  // Paste: prefer HTML clipboard data (preserves bold/underline/etc. via
-  // markdown conversion above); fall back to plain text otherwise. Discord's
-  // "- item" bullet markdown is converted to "• " per line either way.
   function handleMessagePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
     const html = e.clipboardData.getData("text/html");
     const plain = e.clipboardData.getData("text/plain");
@@ -383,9 +374,6 @@ export default function AnnouncementsPage() {
         throw new Error(data.error || "Failed to schedule announcement");
       }
 
-      // Add to the local "previous announcements" cache. This is purely
-      // client-side (localStorage) and self-prunes after 24h — nothing is
-      // written to the database for this.
       const entry: CachedAnnouncement = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         title,
@@ -419,12 +407,6 @@ export default function AnnouncementsPage() {
     }
   }
 
-  // "Use" button on a previously scheduled announcement: refills the form
-  // with its exact title, message, mention, and channel. The original
-  // date/time is prefilled too, but since it's likely in the past by the
-  // time this is reused, the person should double check it before sending.
-  // Images can't be restored (only their uploaded URLs are cached, not the
-  // original File objects), so the file input is left empty.
   function handleUsePrevious(a: CachedAnnouncement) {
     setChannelId(a.channelId);
     setChannelSearch("");
@@ -456,7 +438,6 @@ export default function AnnouncementsPage() {
           onSubmit={handleSubmit}
           className="space-y-5 rounded-xl border border-neutral-200 bg-white p-5 shadow-sm dark:border-neutral-800 dark:bg-neutral-950/50 dark:shadow-none"
         >
-          {/* Channel searchable combobox */}
           <div ref={channelBoxRef} className="relative">
             <label className="mb-1 block text-sm text-neutral-700 dark:text-neutral-300">
               Channel
@@ -548,7 +529,6 @@ export default function AnnouncementsPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            {/* Mention searchable combobox: special / roles / members */}
             <div ref={mentionBoxRef} className="relative">
               <label className="mb-1 block text-sm text-neutral-700 dark:text-neutral-300">
                 Mention
@@ -677,9 +657,6 @@ export default function AnnouncementsPage() {
           </button>
         </form>
 
-        {/* Previous announcements — cached client-side, auto-expires after 1 day.
-            The panel itself is height-capped and sticky so the list scrolls
-            internally instead of pushing the page height around. */}
         <div className="flex max-h-[calc(100vh-3rem)] flex-col rounded-xl border border-neutral-200 bg-white p-4 shadow-sm dark:border-neutral-800 dark:bg-neutral-950/50 dark:shadow-none lg:sticky lg:top-6">
           <h2 className="mb-3 shrink-0 text-sm font-semibold text-neutral-900 dark:text-white">
             Previously scheduled

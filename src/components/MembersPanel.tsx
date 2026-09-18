@@ -42,7 +42,6 @@ export default function MembersPanel() {
       .finally(() => setLoading(false))
   }, [])
 
-  // Every distinct role name across all members (for the filter dropdown)
   const allRoles = useMemo(() => {
     const seen = new Set<string>()
     const order: string[] = []
@@ -68,7 +67,6 @@ export default function MembersPanel() {
     })
   }, [members, search, roleFilter])
 
-  // Grouping key = member's top (highest-position) role
   const topRole = (m: Member) => m.roles[0] ?? { name: 'Member', color: 0 }
 
   const roleOrder = useMemo(() => {
